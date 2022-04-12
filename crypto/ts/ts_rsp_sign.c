@@ -16,6 +16,7 @@
 #include <openssl/objects.h>
 #include <openssl/ts.h>
 #include <openssl/pkcs7.h>
+#include <openssl/sm3.h>
 #include "ts_lcl.h"
 
 static ASN1_INTEGER *def_serial_cb(struct TS_resp_ctx *, void *);
@@ -742,15 +743,37 @@ static ESS_CERT_ID *ess_CERT_ID_new_init(X509 *cert, int issuer_needed)
 {
     ESS_CERT_ID *cid = NULL;
     GENERAL_NAME *name = NULL;
-    unsigned char cert_sha1[SHA_DIGEST_LENGTH];
+    unsigned char cert_hash[64];
 
     /* Call for side-effect of computing hash and caching extensions */
     X509_check_purpose(cert, -1, 0);
     if ((cid = ESS_CERT_ID_new()) == NULL)
         goto err;
-    X509_digest(cert, EVP_sha1(), cert_sha1, NULL);
-    if (!ASN1_OCTET_STRING_set(cid->hash, cert_sha1, SHA_DIGEST_LENGTH))
-        goto err;
+
+    // sunshuo add
+    switch (X509_get_signature_nid(cert)) {
+        case NID_sha256WithRSAEncryption:
+        case NID_sm2encrypt_with_sha256:
+        case NID_sm2sign_with_sha256:
+            X509_digest(cert, EVP_sha256(), cert_hash, NULL);
+            if (!ASN1_OCTET_STRING_set(cid->hash, cert_hash, SHA256_DIGEST_LENGTH))
+                goto err;
+            break;
+        case NID_sm2sign_with_sm3:
+        case NID_sm2encrypt_with_sm3:
+            X509_digest(cert, EVP_sm3(), cert_hash, NULL);
+            if (!ASN1_OCTET_STRING_set(cid->hash, cert_hash, SM3_DIGEST_LENGTH))
+                goto err;
+            break;
+        case NID_sha1WithRSAEncryption:
+        case NID_sha1WithRSA:
+        case NID_sm2sign_with_sha1:
+            X509_digest(cert, EVP_sha1(), cert_hash, NULL);
+            if (!ASN1_OCTET_STRING_set(cid->hash, cert_hash, SHA_DIGEST_LENGTH))
+                goto err;
+            break;
+    }
+    // sunshuo add
 
     /* Setting the issuer/serial if requested. */
     if (issuer_needed) {

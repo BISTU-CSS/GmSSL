@@ -247,12 +247,26 @@ static ESS_SIGNING_CERT *ess_get_signing_cert(PKCS7_SIGNER_INFO *si)
 static int ts_find_cert(STACK_OF(ESS_CERT_ID) *cert_ids, X509 *cert)
 {
     int i;
-    unsigned char cert_sha1[SHA_DIGEST_LENGTH];
+    unsigned char cert_hash[64];
 
     if (!cert_ids || !cert)
         return -1;
-
-    X509_digest(cert, EVP_sha1(), cert_sha1, NULL);
+    switch (X509_get_signature_nid(cert)) {
+        case NID_sha256WithRSAEncryption:
+        case NID_sm2encrypt_with_sha256:
+        case NID_sm2sign_with_sha256:
+            X509_digest(cert, EVP_sha256(), cert_hash, NULL);
+            break;
+        case NID_sm2sign_with_sm3:
+        case NID_sm2encrypt_with_sm3:
+            X509_digest(cert, EVP_sm3(), cert_hash, NULL);
+            break;
+        case NID_sha1WithRSAEncryption:
+        case NID_sha1WithRSA:
+        case NID_sm2sign_with_sha1:
+            X509_digest(cert, EVP_sha1(), cert_hash, NULL);
+            break;
+    }
 
     /* Recompute SHA1 hash of certificate if necessary (side effect). */
     X509_check_purpose(cert, -1, 0);
@@ -262,7 +276,7 @@ static int ts_find_cert(STACK_OF(ESS_CERT_ID) *cert_ids, X509 *cert)
         ESS_CERT_ID *cid = sk_ESS_CERT_ID_value(cert_ids, i);
 
         if (cid->hash->length == SHA_DIGEST_LENGTH
-            && memcmp(cid->hash->data, cert_sha1, SHA_DIGEST_LENGTH) == 0) {
+            && memcmp(cid->hash->data, cert_hash, SHA_DIGEST_LENGTH) == 0) {
             ESS_ISSUER_SERIAL *is = cid->issuer_serial;
             if (!is || !ts_issuer_serial_cmp(is, cert))
                 return i;
